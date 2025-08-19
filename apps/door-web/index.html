@@ -60,21 +60,21 @@
     <p class="small">Demo form. Submissions go to your Supabase <code>knocks</code> table.</p>
   </div>
 
-  <!-- Config with your Supabase URL and anon key (cache-busted for Safari) -->
-  <script src="./config.js?v=2"></script>
-  <!-- Supabase client -->
+  <!-- Cache-busted config for Safari -->
+  <script src="./config.js?v=3"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     const cfg = window.KNOCK_CONFIG || {};
     const supa = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
 
-    // NEW: prefill & lock email if provided by the knock link (?from=)
+    // Prefill & lock email from ?from=
     const params = new URLSearchParams(location.search);
     const fromParam = params.get('from');
     if (fromParam) {
       const emailInput = document.getElementById('email');
       emailInput.value = fromParam;
       emailInput.readOnly = true;
+      emailInput.disabled = true;
       emailInput.style.background = '#f3f4f6';
       emailInput.title = 'Email captured from your message';
     }
@@ -86,6 +86,20 @@
     function setStatus(text, ok=false) {
       statusEl.textContent = text;
       statusEl.className = ok ? 'small ok' : 'small err';
+    }
+
+    async function restFallbackInsert(row){
+      const resp = await fetch(`${cfg.SUPABASE_URL}/rest/v1/knocks`, {
+        method: 'POST',
+        headers: {
+          apikey: cfg.SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${cfg.SUPABASE_ANON_KEY}`,
+          'Content-Type': 'application/json',
+          Prefer: 'return=minimal'
+        },
+        body: JSON.stringify(row)
+      });
+      if (!resp.ok) throw new Error(await resp.text());
     }
 
     form.addEventListener('submit', async (e) => {
@@ -102,31 +116,27 @@
       if (!human) { setStatus('Please confirm you are human.'); submitBtn.disabled = false; return; }
       if (!name || !email || !message) { setStatus('Name, email, and message are required.'); submitBtn.disabled = false; return; }
 
-      // lightweight fingerprint
       const fp = btoa([navigator.userAgent, navigator.language].join('|')).slice(0, 32);
+      const row = { name, email, message, attachment_url: link || null, sender_fingerprint: fp };
 
       try {
-        const { error } = await supa.from('knocks').insert({
-          name, email, message,
-          attachment_url: link || null,
-          sender_fingerprint: fp
-        });
-
+        // Try the JS client first
+        const { error } = await supa.from('knocks').insert(row);
         if (error) {
-          console.error(error);
-          setStatus('Error saving your knock. Please try again.');
-        } else {
-          form.reset();
-          if (fromParam) { // keep locked email if we got it from the link
-            const emailInput = document.getElementById('email');
-            emailInput.value = fromParam;
-            emailInput.readOnly = true;
-          }
-          setStatus('Knock received. Thank you!', true);
+          console.warn('supabase-js insert failed, trying REST fallback:', error);
+          await restFallbackInsert(row);
         }
+        form.reset();
+        if (fromParam) {
+          const emailInput = document.getElementById('email');
+          emailInput.value = fromParam;
+          emailInput.readOnly = true;
+          emailInput.disabled = true;
+        }
+        setStatus('Knock received. Thank you!', true);
       } catch (err) {
         console.error(err);
-        setStatus('Unexpected error. Please try again.');
+        setStatus('Error saving your knock. Please try again.');
       } finally {
         submitBtn.disabled = false;
       }
