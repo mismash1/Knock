@@ -42,7 +42,7 @@
       <div class="topbar">
         <div>
           <h1>Knock Owner</h1>
-          <p class="small">Approve, decline, or archive knocks.</p>
+          <p class="small">Approve, decline, or archive knocks. Approve also whitelists the email.</p>
         </div>
         <div>
           <button id="logout" class="secondary">Sign out</button>
@@ -91,7 +91,6 @@
       }
     }
 
-    // Load and render knocks
     async function loadKnocks() {
       const { data, error } = await supa
         .from('knocks')
@@ -106,7 +105,7 @@
       }
 
       tbody.innerHTML = data.map(row => `
-        <tr data-id="${row.id}">
+        <tr data-id="${row.id}" data-email="${row.email}">
           <td>${fmt(row.created_at)}</td>
           <td>${row.name}</td>
           <td>${row.email}</td>
@@ -121,12 +120,12 @@
       `).join('') || `<tr><td colspan="6">No knocks yet.</td></tr>`;
     }
 
-    // Row button handler
     tbody.addEventListener('click', async (e) => {
       const btn = e.target.closest('button');
       if (!btn) return;
       const tr = e.target.closest('tr');
       const id = tr?.dataset?.id;
+      const email = tr?.dataset?.email;
       if (!id) return;
 
       const action = btn.dataset.action;
@@ -136,23 +135,30 @@
 
       btn.disabled = true;
       try {
-        const { error } = await supa
+        // 1) Update knock status
+        const { error: upErr } = await supa
           .from('knocks')
           .update({ status, reviewer: 'owner', reviewed_at: new Date().toISOString() })
           .eq('id', id);
+        if (upErr) throw upErr;
 
-        if (error) {
-          alert('Update failed. See console.');
-          console.error(error);
-        } else {
-          loadKnocks();
+        // 2) If approved, upsert into whitelist
+        if (action === 'approve' && email) {
+          const { error: wlErr } = await supa
+            .from('whitelist')
+            .upsert({ email, note: 'Approved via owner page' });
+          if (wlErr) throw wlErr;
         }
+
+        loadKnocks();
+      } catch (err) {
+        alert('Action failed. See console.');
+        console.error(err);
       } finally {
         btn.disabled = false;
       }
     });
 
-    // Auth UI
     el('#loginForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       authStatus.textContent = '';
