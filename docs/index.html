@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Knock 2.0 — Door</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: -apple-system, system-ui, sans-serif; padding: 40px; }
+    .card { max-width: 640px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 12px; }
+    h1 { margin: 0 0 10px; }
+    p.lead { color: #4b5563; margin: 0 0 20px; }
+    label { display: block; font-weight: 600; margin: 14px 0 6px; }
+    input, textarea { width: 100%; padding: 10px; border: 1px solid #e5e7eb; border-radius: 8px; font-size: 16px; }
+    textarea { min-height: 120px; resize: vertical; }
+    .row { display: flex; gap: 10px; }
+    .row > div { flex: 1; }
+    .actions { margin-top: 18px; display: flex; align-items: center; gap: 12px; }
+    button { padding: 10px 14px; border: 0; border-radius: 8px; background: #111827; color: white; font-weight: 600; cursor: pointer; }
+    button[disabled] { opacity: .6; cursor: not-allowed; }
+    .small { font-size: 12px; color: #6b7280; }
+    #status { margin-top: 12px; font-weight: 600; }
+    .ok { color: #065f46; }
+    .err { color: #991b1b; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Knock 2.0</h1>
+    <p class="lead">Unknown senders knock first. Fill this form to request access.</p>
+
+    <form id="knock-form" novalidate>
+      <div class="row">
+        <div>
+          <label for="name">Name</label>
+          <input id="name" name="name" type="text" autocomplete="name" required />
+        </div>
+        <div>
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" autocomplete="email" required />
+        </div>
+      </div>
+
+      <label for="message">Why are you reaching out?</label>
+      <textarea id="message" name="message" required></textarea>
+
+      <label for="link">Optional link (LinkedIn, calendar, etc.)</label>
+      <input id="link" name="link" type="url" placeholder="https://..." />
+
+      <div class="actions">
+        <label class="small">
+          <input id="human" type="checkbox" /> I am a human
+        </label>
+        <button id="submitBtn" type="submit">Knock</button>
+      </div>
+
+      <div id="status" class="small"></div>
+    </form>
+
+    <p class="small">Demo form. Submissions go to your Supabase <code>knocks</code> table.</p>
+  </div>
+
+  <!-- Config with your Supabase URL and anon key -->
+  <script src="./config.js"></script>
+  <!-- Supabase client -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script>
+    const cfg = window.KNOCK_CONFIG || {};
+    const supa = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+
+    const form = document.getElementById('knock-form');
+    const statusEl = document.getElementById('status');
+    const submitBtn = document.getElementById('submitBtn');
+
+    function setStatus(text, ok=false) {
+      statusEl.textContent = text;
+      statusEl.className = ok ? 'small ok' : 'small err';
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      setStatus('');
+      submitBtn.disabled = true;
+
+      const name = document.getElementById('name').value.trim();
+      const email = document.getElementById('email').value.trim();
+      const message = document.getElementById('message').value.trim();
+      const link = document.getElementById('link').value.trim();
+      const human = document.getElementById('human').checked;
+
+      if (!human) {
+        setStatus('Please confirm you are human.');
+        submitBtn.disabled = false;
+        return;
+      }
+      if (!name || !email || !message) {
+        setStatus('Name, email, and message are required.');
+        submitBtn.disabled = false;
+        return;
+      }
+
+      // lightweight fingerprint
+      const fp = btoa([navigator.userAgent, navigator.language].join('|')).slice(0, 32);
+
+      try {
+        const { error } = await supa.from('knocks').insert({
+          name, email, message,
+          attachment_url: link || null,
+          sender_fingerprint: fp
+        });
+
+        if (error) {
+          console.error(error);
+          setStatus('Error saving your knock. Please try again.');
+        } else {
+          form.reset();
+          setStatus('Knock received. Thank you!', true);
+        }
+      } catch (err) {
+        console.error(err);
+        setStatus('Unexpected error. Please try again.');
+      } finally {
+        submitBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
