@@ -60,13 +60,24 @@
     <p class="small">Demo form. Submissions go to your Supabase <code>knocks</code> table.</p>
   </div>
 
-  <!-- Config with your Supabase URL and anon key -->
-  <script src="./config.js"></script>
+  <!-- Config with your Supabase URL and anon key (cache-busted for Safari) -->
+  <script src="./config.js?v=2"></script>
   <!-- Supabase client -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
     const cfg = window.KNOCK_CONFIG || {};
     const supa = window.supabase.createClient(cfg.SUPABASE_URL, cfg.SUPABASE_ANON_KEY);
+
+    // NEW: prefill & lock email if provided by the knock link (?from=)
+    const params = new URLSearchParams(location.search);
+    const fromParam = params.get('from');
+    if (fromParam) {
+      const emailInput = document.getElementById('email');
+      emailInput.value = fromParam;
+      emailInput.readOnly = true;
+      emailInput.style.background = '#f3f4f6';
+      emailInput.title = 'Email captured from your message';
+    }
 
     const form = document.getElementById('knock-form');
     const statusEl = document.getElementById('status');
@@ -88,16 +99,8 @@
       const link = document.getElementById('link').value.trim();
       const human = document.getElementById('human').checked;
 
-      if (!human) {
-        setStatus('Please confirm you are human.');
-        submitBtn.disabled = false;
-        return;
-      }
-      if (!name || !email || !message) {
-        setStatus('Name, email, and message are required.');
-        submitBtn.disabled = false;
-        return;
-      }
+      if (!human) { setStatus('Please confirm you are human.'); submitBtn.disabled = false; return; }
+      if (!name || !email || !message) { setStatus('Name, email, and message are required.'); submitBtn.disabled = false; return; }
 
       // lightweight fingerprint
       const fp = btoa([navigator.userAgent, navigator.language].join('|')).slice(0, 32);
@@ -114,6 +117,11 @@
           setStatus('Error saving your knock. Please try again.');
         } else {
           form.reset();
+          if (fromParam) { // keep locked email if we got it from the link
+            const emailInput = document.getElementById('email');
+            emailInput.value = fromParam;
+            emailInput.readOnly = true;
+          }
           setStatus('Knock received. Thank you!', true);
         }
       } catch (err) {
